@@ -417,57 +417,76 @@ function getHostArch(): string {
   return os.arch();
 }
 
+// Fonction pour exécuter une commande dans l'espace de noms de l'hôte avec nsenter
+function execInHostNamespace(command: string): string | null {
+  try {
+    // Vérifier si /proc/1 existe (nécessaire pour --pid host)
+    if (!fs.existsSync("/proc/1")) {
+      console.log("  /proc/1 n'existe pas, --pid host non utilisé?");
+      return null;
+    }
+    
+    // Vérifier si nsenter est disponible
+    try {
+      execSync("which nsenter 2>/dev/null", { encoding: "utf-8", timeout: 1000 });
+    } catch {
+      console.log("  nsenter non disponible");
+      return null;
+    }
+    
+    // Utiliser nsenter pour exécuter la commande dans l'espace de noms de l'hôte
+    // --target 1: PID 1 de l'hôte (accessible avec --pid host)
+    // --mount: entrer dans le namespace mount
+    // --uts: entrer dans le namespace UTS (hostname)
+    // --ipc: entrer dans le namespace IPC
+    // --net: entrer dans le namespace réseau
+    const result = execSync(
+      `nsenter --target 1 --mount --uts --ipc --net -- sh -c "${command.replace(/"/g, '\\"').replace(/\$/g, '\\$')}"`,
+      { encoding: "utf-8", timeout: 3000, stdio: "pipe" }
+    );
+    
+    return result.trim();
+  } catch (error: any) {
+    console.log(`  nsenter error: ${error.message}`);
+    return null;
+  }
+}
+
 // Fonction pour obtenir l'IP de l'hôte
 function getHostIP(): string {
   console.log("=== Début de la récupération de l'IP ===");
   try {
-    // Méthode 0: Essayer d'utiliser hostname -i (le plus fiable avec --pid host)
-    // Note: Alpine Linux peut ne pas avoir hostname avec l'option -i
+    // Méthode 0: Essayer d'utiliser hostname -i via nsenter (le plus fiable)
+    console.log("Méthode 0: hostname -i via nsenter");
     try {
-      if (fs.existsSync("/proc/1/root")) {
-        // Vérifier si hostname est disponible
-        try {
-          execSync("which hostname 2>/dev/null", { encoding: "utf-8", timeout: 1000 });
-        } catch {
-          // hostname n'est pas disponible, passer à la méthode suivante
-          throw new Error("hostname command not found");
-        }
-        
-        // Avec --pid host, on peut exécuter hostname -i dans l'espace de noms de l'hôte
-        const hostnameIP = execSync("hostname -i 2>/dev/null", { encoding: "utf-8", timeout: 2000 }).trim();
-        console.log(`hostname -i result: "${hostnameIP}"`);
-        if (hostnameIP && hostnameIP.length > 0 && hostnameIP !== "127.0.0.1" && !hostnameIP.includes("::1")) {
-          // hostname -i peut retourner plusieurs IPs, prendre la première
-          const firstIP = hostnameIP.split(/\s+/)[0];
-          if (firstIP && firstIP.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
-            console.log(`✓ IP depuis hostname -i: ${firstIP}`);
+      const hostnameIP = execInHostNamespace("hostname -i 2>/dev/null");
+      console.log(`  hostname -i result: "${hostnameIP}"`);
+      if (hostnameIP && hostnameIP.length > 0 && hostnameIP !== "127.0.0.1" && !hostnameIP.includes("::1")) {
+        // hostname -i peut retourner plusieurs IPs, prendre la première
+        const firstIP = hostnameIP.split(/\s+/)[0];
+        if (firstIP && firstIP.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
+          // Filtrer les IPs Docker
+          const ipParts = firstIP.split(".");
+          const firstOctet = parseInt(ipParts[0]);
+          const secondOctet = parseInt(ipParts[1]);
+          const isDockerIP = firstOctet === 172 && secondOctet >= 16 && secondOctet <= 31;
+          
+          if (!isDockerIP) {
+            console.log(`✓ IP depuis hostname -i (nsenter): ${firstIP}`);
             return firstIP;
+          } else {
+            console.log(`  IP rejetée (Docker): ${firstIP}`);
           }
         }
       }
     } catch (e: any) {
-      console.log(`hostname -i failed or not available: ${e.message}`);
-      // hostname -i n'est pas disponible ou a échoué, continuer avec les autres méthodes
+      console.log(`  hostname -i via nsenter failed: ${e.message}`);
     }
     
-    // Méthode 0.1: Essayer ip addr show (plus universel que hostname -i)
-    console.log("Méthode 0.1: Essai avec ip addr show");
+    // Méthode 0.1: Essayer ip addr show via nsenter (plus universel)
+    console.log("Méthode 0.1: ip addr show via nsenter");
     try {
-      // Vérifier si ip est disponible
-      try {
-        execSync("which ip 2>/dev/null", { encoding: "utf-8", timeout: 1000 });
-        console.log("  Commande 'ip' trouvée");
-      } catch {
-        throw new Error("ip command not found");
-      }
-      
-      // Utiliser ip addr show pour lister les IPs
-      // Avec --pid host, on peut exécuter directement dans l'espace de noms de l'hôte
-      const ipOutput = execSync("ip -4 addr show 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | head -1", { 
-        encoding: "utf-8", 
-        timeout: 2000 
-      }).trim();
-      
+      const ipOutput = execInHostNamespace("ip -4 addr show 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | head -1");
       console.log(`  ip addr show output: "${ipOutput}"`);
       
       if (ipOutput) {
@@ -482,7 +501,7 @@ function getHostIP(): string {
           const isDockerIP = firstOctet === 172 && secondOctet >= 16 && secondOctet <= 31;
           
           if (ip !== "127.0.0.1" && !isDockerIP) {
-            console.log(`✓ IP depuis ip addr show: ${ip}`);
+            console.log(`✓ IP depuis ip addr show (nsenter): ${ip}`);
             return ip;
           } else {
             console.log(`  IP rejetée (Docker ou loopback): ${ip}`);
@@ -492,9 +511,7 @@ function getHostIP(): string {
         console.log("  ip addr show n'a retourné aucune sortie");
       }
     } catch (e: any) {
-      console.log(`  ip addr show failed: ${e.message}`);
-      if (e.stdout) console.log(`  stdout: ${e.stdout}`);
-      if (e.stderr) console.log(`  stderr: ${e.stderr}`);
+      console.log(`  ip addr show via nsenter failed: ${e.message}`);
     }
     
     // Méthode 0.5: Lire depuis /sys/class/net pour trouver les interfaces et leurs IPs

@@ -27,8 +27,9 @@ WORKDIR /app
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Installation de pnpm pour le runner
-RUN npm install -g pnpm@8.6.7
+# Installation de pnpm et nsenter pour le runner
+RUN npm install -g pnpm@8.6.7 && \
+    apk add --no-cache util-linux
 
 # Copier les fichiers nécessaires depuis le builder
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./
