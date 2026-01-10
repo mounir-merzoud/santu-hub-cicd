@@ -16,12 +16,14 @@ interface SystemData {
   memory: {
     total: number;
     free: number;
+    available: number;
     used: number;
   };
   uptime: number;
   hostname: string;
   localIP: string;
   loadAvg: number[];
+  cpuUsage: number;
   hostMounted: boolean;
 }
 
@@ -113,11 +115,15 @@ export default function SystemInfo() {
 
   const totalMem = systemData.memory.total / 1024 / 1024 / 1024;
   const usedMem = systemData.memory.used / 1024 / 1024 / 1024;
+  const availableMem = systemData.memory.available / 1024 / 1024 / 1024;
   const freeMem = systemData.memory.free / 1024 / 1024 / 1024;
   const memUsagePercent = (usedMem / totalMem) * 100;
 
   const cpuCount = systemData.cpu.count;
-  const cpuUsagePercent = Math.min((systemData.loadAvg[0] / cpuCount) * 100, 100);
+  // Utiliser cpuUsage si disponible, sinon fallback sur loadAvg
+  const cpuUsagePercent = systemData.cpuUsage !== undefined 
+    ? systemData.cpuUsage 
+    : Math.min((systemData.loadAvg[0] / cpuCount) * 100, 100);
 
   const systemInfo = [
     {
@@ -179,6 +185,9 @@ export default function SystemInfo() {
               <p className="text-xs text-gray-600 dark:text-gray-400">
                 {usedMem.toFixed(2)} GB / {totalMem.toFixed(2)} GB utilisés
               </p>
+              <p className="text-xs text-gray-500 dark:text-gray-500">
+                Disponible: {availableMem.toFixed(2)} GB
+              </p>
             </div>
             <div className="text-3xl font-bold text-gray-900 dark:text-gray-100">
               {memUsagePercent.toFixed(1)}%
@@ -193,7 +202,7 @@ export default function SystemInfo() {
             </div>
           </div>
           <div className="flex justify-between mt-3 text-xs text-gray-600 dark:text-gray-400">
-            <span>Libre: {freeMem.toFixed(2)} GB</span>
+            <span>Disponible: {availableMem.toFixed(2)} GB</span>
             <span>Totale: {totalMem.toFixed(2)} GB</span>
           </div>
         </div>

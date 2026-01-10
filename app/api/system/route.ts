@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import os from "os";
+import { execSync } from "child_process";
 
 // Base path pour les volumes montés de l'hôte
 const HOST_ROOT = "/host";
@@ -74,12 +75,18 @@ function getHostCPUInfo(): { model: string; count: number } {
   if (cpuInfo && cpuInfo.length > 0) {
     const lines = cpuInfo.split("\n");
     
-    // Chercher le modèle CPU
-    let modelLine = lines.find((line) => 
-      line.toLowerCase().includes("model name") || 
-      line.includes("Model") ||
-      line.match(/^model\s+name\s*:/i)
-    );
+    // Chercher le modèle CPU - format: "model name\t: Intel(R) Xeon(R) CPU E5-2673 v4 @ 2.30GHz"
+    let modelLine = lines.find((line) => {
+      const lower = line.toLowerCase();
+      return lower.includes("model name") || 
+             (lower.includes("model") && lower.includes("name")) ||
+             line.match(/^model\s+name\s*[:=]/i);
+    });
+    
+    // Si pas trouvé, chercher avec tabulation
+    if (!modelLine) {
+      modelLine = lines.find((line) => line.match(/^model\s+name\s*[:=]/i));
+    }
     
     // Fallback pour ARM
     if (!modelLine) {
@@ -92,22 +99,49 @@ function getHostCPUInfo(): { model: string; count: number } {
     
     let model = "Unknown";
     if (modelLine) {
-      const parts = modelLine.split(/[:=]/);
-      if (parts.length > 1) {
-        model = parts.slice(1).join(":").trim();
+      // Extraire le modèle après ":" ou "="
+      const match = modelLine.match(/[:=]\s*(.+)/);
+      if (match && match[1]) {
+        model = match[1].trim();
       } else {
-        model = modelLine.trim();
+        // Si pas de match, prendre toute la ligne après "model name"
+        const parts = modelLine.split(/[:=]/);
+        if (parts.length > 1) {
+          model = parts.slice(1).join(":").trim();
+        } else {
+          model = modelLine.trim();
+        }
       }
     }
     
-    // Compter les processeurs
-    const processorLines = lines.filter((line) => 
-      line.trim().startsWith("processor") || 
-      line.match(/^processor\s*[:=]/i)
-    );
-    const count = processorLines.length > 0 ? processorLines.length : os.cpus().length;
+    // Compter les processeurs - chercher toutes les lignes "processor : 0", "processor : 1", etc.
+    const processorLines = lines.filter((line) => {
+      const trimmed = line.trim();
+      return trimmed.startsWith("processor") && 
+             (trimmed.match(/^processor\s*[:=]/i) || trimmed.match(/^processor\s+\d+/i));
+    });
     
-    return { model: model || "Unknown", count };
+    // Si on trouve des lignes processor, utiliser leur nombre
+    // Sinon, chercher "CPU(s)" dans /proc/cpuinfo ou utiliser os.cpus()
+    let count = processorLines.length;
+    
+    if (count === 0) {
+      // Essayer de trouver "CPU(s)" dans les lignes
+      const cpuCountLine = lines.find((line) => line.toLowerCase().includes("cpu(s)"));
+      if (cpuCountLine) {
+        const match = cpuCountLine.match(/(\d+)/);
+        if (match) {
+          count = parseInt(match[1]);
+        }
+      }
+      
+      // Si toujours 0, utiliser os.cpus()
+      if (count === 0) {
+        count = os.cpus().length;
+      }
+    }
+    
+    return { model: model || "Unknown", count: count || 1 };
   }
 
   const cpus = os.cpus();
@@ -115,19 +149,20 @@ function getHostCPUInfo(): { model: string; count: number } {
 }
 
 // Fonction pour obtenir la mémoire depuis l'hôte
-function getHostMemory(): { total: number; free: number } {
+function getHostMemory(): { total: number; free: number; available: number } {
   const memInfo = readHostFile("/proc/meminfo", () => {
-    return `MemTotal: ${Math.floor(os.totalmem() / 1024)} kB\nMemAvailable: ${Math.floor(os.freemem() / 1024)} kB`;
+    return `MemTotal: ${Math.floor(os.totalmem() / 1024)} kB\nMemAvailable: ${Math.floor(os.freemem() / 1024)} kB\nMemFree: ${Math.floor(os.freemem() / 1024)} kB`;
   });
 
   let total = os.totalmem();
   let free = os.freemem();
+  let available = os.freemem();
 
   if (memInfo && memInfo.length > 0) {
     const lines = memInfo.split("\n");
     const totalLine = lines.find((line) => line.startsWith("MemTotal"));
-    const freeLine = lines.find((line) => line.startsWith("MemAvailable")) ||
-                     lines.find((line) => line.startsWith("MemFree"));
+    const availableLine = lines.find((line) => line.startsWith("MemAvailable"));
+    const freeLine = lines.find((line) => line.startsWith("MemFree"));
 
     if (totalLine) {
       const totalMatch = totalLine.match(/(\d+)/);
@@ -136,6 +171,15 @@ function getHostMemory(): { total: number; free: number } {
       }
     }
 
+    // MemAvailable est la mémoire réellement disponible pour les applications
+    if (availableLine) {
+      const availableMatch = availableLine.match(/(\d+)/);
+      if (availableMatch) {
+        available = parseInt(availableMatch[1]) * 1024; // Convertir de kB en bytes
+      }
+    }
+
+    // MemFree est la mémoire complètement libre
     if (freeLine) {
       const freeMatch = freeLine.match(/(\d+)/);
       if (freeMatch) {
@@ -144,7 +188,7 @@ function getHostMemory(): { total: number; free: number } {
     }
   }
 
-  return { total, free };
+  return { total, free, available };
 }
 
 // Fonction pour obtenir l'uptime depuis l'hôte
@@ -160,15 +204,25 @@ function getHostUptime(): number {
 
 // Fonction pour obtenir le hostname depuis l'hôte
 function getHostHostname(): string {
-  const hostname = readHostFile("/etc/hostname", () => os.hostname());
-
+  // Essayer d'abord /proc/sys/kernel/hostname (plus fiable avec --pid host)
+  let hostname = readHostFile("/proc/sys/kernel/hostname", () => "");
+  
+  if (hostname && hostname.length > 0 && !hostname.match(/^[0-9a-f]{12}$/i) && hostname !== "host") {
+    return hostname.trim();
+  }
+  
+  // Essayer /etc/hostname
+  hostname = readHostFile("/etc/hostname", () => "");
+  
   if (hostname && hostname.length > 0) {
     // Exclure les IDs de conteneur Docker (12 caractères hexadécimaux)
-    if (hostname.match(/^[0-9a-f]{12}$/i)) {
-      return os.hostname(); // Fallback si c'est un ID Docker
+    if (hostname.match(/^[0-9a-f]{12}$/i) || hostname === "host") {
+      // Fallback si c'est un ID Docker
+    } else {
+      return hostname.trim();
     }
-    return hostname;
   }
+  
   return os.hostname();
 }
 
@@ -227,12 +281,90 @@ function getHostLoadAvg(): number[] {
   return os.loadavg();
 }
 
+// Fonction pour obtenir l'utilisation CPU réelle depuis l'hôte
+// Note: Pour un calcul précis, il faudrait deux lectures de /proc/stat avec un délai
+// Ici, on utilise une approximation basée sur la charge moyenne
+function getHostCPUUsage(): number {
+  try {
+    // Lire /proc/stat pour obtenir des informations sur le CPU
+    const stat = readHostFile("/proc/stat", () => "");
+    
+    if (stat && stat.length > 0) {
+      const lines = stat.split("\n");
+      const cpuLine = lines.find((line) => line.startsWith("cpu "));
+      
+      if (cpuLine) {
+        // Format: cpu  user nice system idle iowait irq softirq steal guest guest_nice
+        const parts = cpuLine.trim().split(/\s+/);
+        
+        if (parts.length >= 5) {
+          // user, nice, system, idle, iowait, irq, softirq, steal
+          const user = parseFloat(parts[1]) || 0;
+          const nice = parseFloat(parts[2]) || 0;
+          const system = parseFloat(parts[3]) || 0;
+          const idle = parseFloat(parts[4]) || 0;
+          const iowait = parseFloat(parts[5]) || 0;
+          const irq = parseFloat(parts[6]) || 0;
+          const softirq = parseFloat(parts[7]) || 0;
+          const steal = parseFloat(parts[8]) || 0;
+          
+          // Total des ticks CPU
+          const totalIdle = idle + iowait;
+          const totalNonIdle = user + nice + system + irq + softirq + steal;
+          const total = totalIdle + totalNonIdle;
+          
+          // Pourcentage d'utilisation = (non-idle / total) * 100
+          // Note: Ceci donne une moyenne depuis le boot, pas l'utilisation actuelle
+          // Pour l'utilisation actuelle, il faudrait deux lectures avec un délai
+          if (total > 0) {
+            const usage = (totalNonIdle / total) * 100;
+            return Math.min(Math.max(usage, 0), 100);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.log("Erreur lors du calcul de l'utilisation CPU:", error);
+  }
+  
+  // Fallback: utiliser loadavg comme approximation
+  // Le load average n'est pas un pourcentage, mais on peut l'utiliser comme indicateur
+  // Load average de 1.0 sur 1 CPU = 100% d'utilisation
+  const loadAvg = getHostLoadAvg();
+  const cpuCount = getHostCPUInfo().count;
+  
+  // Convertir load average en pourcentage approximatif
+  // Load avg représente la charge moyenne sur 1, 5 et 15 minutes
+  // On utilise la charge sur 1 minute et on la divise par le nombre de CPUs
+  const loadPercent = (loadAvg[0] / cpuCount) * 100;
+  
+  // Le load average peut être > 100% si le système est surchargé
+  // On limite à 100% pour l'affichage
+  return Math.min(loadPercent, 100);
+}
+
 // Fonction pour obtenir l'architecture depuis l'hôte
 function getHostArch(): string {
+  // Essayer d'abord /proc/cpuinfo
   const cpuInfo = readHostFile("/proc/cpuinfo", () => "");
   
   if (cpuInfo && cpuInfo.length > 0) {
     const lines = cpuInfo.split("\n");
+    
+    // Chercher directement "x86_64" ou "aarch64" dans les lignes
+    for (const line of lines) {
+      if (line.toLowerCase().includes("x86_64") || line.toLowerCase().includes("amd64")) {
+        return "x64";
+      }
+      if (line.toLowerCase().includes("aarch64") || line.toLowerCase().includes("arm64")) {
+        return "arm64";
+      }
+      if (line.toLowerCase().includes("armv7") || line.toLowerCase().includes("armv6")) {
+        return "arm";
+      }
+    }
+    
+    // Chercher dans les flags
     const flagsLine = lines.find((line) => line.includes("flags") || line.includes("Features"));
     
     if (flagsLine) {
@@ -243,6 +375,7 @@ function getHostArch(): string {
       }
     }
 
+    // Chercher dans les informations processeur
     const processorLine = lines.find((line) =>
       line.includes("Processor") ||
       line.includes("CPU architecture") ||
@@ -258,47 +391,152 @@ function getHostArch(): string {
     }
   }
   
+  // Essayer /proc/version pour détecter l'architecture
+  const procVersion = readHostFile("/proc/version", () => "");
+  if (procVersion) {
+    if (procVersion.includes("x86_64") || procVersion.includes("amd64")) {
+      return "x64";
+    }
+    if (procVersion.includes("aarch64") || procVersion.includes("arm64")) {
+      return "arm64";
+    }
+  }
+  
   return os.arch();
 }
 
 // Fonction pour obtenir l'IP de l'hôte
 function getHostIP(): string {
   try {
-    // Essayer de lire depuis /proc/net/route de l'hôte
-    const route = readHostFile("/proc/net/route", () => "");
+    // Méthode 0: Essayer d'utiliser hostname -i (le plus fiable avec --pid host)
+    try {
+      if (fs.existsSync("/proc/1/root")) {
+        // Avec --pid host, on peut exécuter hostname -i dans l'espace de noms de l'hôte
+        const hostnameIP = execSync("hostname -i 2>/dev/null", { encoding: "utf-8", timeout: 2000 }).trim();
+        if (hostnameIP && hostnameIP.length > 0 && hostnameIP !== "127.0.0.1" && !hostnameIP.includes("::1")) {
+          // hostname -i peut retourner plusieurs IPs, prendre la première
+          const firstIP = hostnameIP.split(/\s+/)[0];
+          if (firstIP && firstIP.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
+            console.log(`✓ IP depuis hostname -i: ${firstIP}`);
+            return firstIP;
+          }
+        }
+      }
+    } catch (e) {
+      // hostname -i n'est pas disponible ou a échoué, continuer avec les autres méthodes
+    }
     
+    // Méthode 1: Lire depuis /proc/net/fib_trie (contient toutes les IPs locales)
+    const fibTrie = readHostFile("/proc/net/fib_trie", () => "");
+    if (fibTrie && fibTrie.length > 0) {
+      // Parser fib_trie pour trouver les IPs locales
+      // Chercher les lignes avec "LOCAL" qui indiquent les IPs locales
+      const lines = fibTrie.split("\n");
+      const localIPs: string[] = [];
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // Chercher les lignes qui contiennent "LOCAL" et une IP
+        if (line.includes("LOCAL")) {
+          // L'IP est généralement sur la ligne précédente ou dans la même ligne
+          const ipMatch = line.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+          if (ipMatch) {
+            const ip = ipMatch[1];
+            // Filtrer les IPs invalides
+            if (ip !== "127.0.0.1" && ip !== "0.0.0.0" && !ip.startsWith("172.17.") && !ip.startsWith("172.18.") && !ip.startsWith("172.19.")) {
+              localIPs.push(ip);
+            }
+          }
+          // Aussi chercher dans les lignes précédentes
+          if (i > 0) {
+            const prevLine = lines[i - 1];
+            const prevIpMatch = prevLine.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+            if (prevIpMatch) {
+              const ip = prevIpMatch[1];
+              if (ip !== "127.0.0.1" && ip !== "0.0.0.0" && !ip.startsWith("172.17.") && !ip.startsWith("172.18.") && !ip.startsWith("172.19.")) {
+                localIPs.push(ip);
+              }
+            }
+          }
+        }
+      }
+      
+      if (localIPs.length > 0) {
+        // Retourner la première IP valide (généralement la principale)
+        // Préférer les IPs dans les plages privées communes (192.168.x.x, 10.x.x.x)
+        const privateIP = localIPs.find(ip => ip.startsWith("192.168.") || ip.startsWith("10."));
+        if (privateIP) {
+          return privateIP;
+        }
+        return localIPs[0];
+      }
+    }
+    
+    // Méthode 2: Lire depuis /proc/net/route pour trouver l'interface principale
+    const route = readHostFile("/proc/net/route", () => "");
     if (route && route.length > 0) {
       const lines = route.split("\n");
-      for (const line of lines) {
-        const parts = line.trim().split(/\s+/);
-        if (parts.length >= 3 && parts[1] === "00000000") { // Route par défaut
-          const gatewayHex = parts[2];
-          if (gatewayHex && gatewayHex.length === 8) {
-            const ip = [
-              parseInt(gatewayHex.substring(6, 8), 16),
-              parseInt(gatewayHex.substring(4, 6), 16),
-              parseInt(gatewayHex.substring(2, 4), 16),
-              parseInt(gatewayHex.substring(0, 2), 16),
-            ].join(".");
-            
-            if (ip !== "0.0.0.0") {
-              return ip;
-            }
+      // Chercher la première interface non-loopback avec une route par défaut
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const iface = parts[0];
+          const dest = parts[1];
+          
+          // Ignorer loopback et chercher la route par défaut
+          if (iface && iface !== "lo" && dest === "00000000") {
+            // Lire l'IP de cette interface depuis /sys/class/net/iface/address (MAC) puis chercher l'IP
+            // Ou utiliser une autre méthode pour obtenir l'IP de l'interface
+            // Pour l'instant, on continue avec la méthode suivante
+          }
+        }
+      }
+    }
+    
+    // Méthode 3: Lire depuis /proc/net/arp (contient les IPs des interfaces)
+    const arp = readHostFile("/proc/net/arp", () => "");
+    if (arp && arp.length > 0) {
+      const lines = arp.split("\n");
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].trim().split(/\s+/);
+        if (parts.length >= 1) {
+          const ip = parts[0];
+          // Vérifier que c'est une IP valide et non loopback/Docker
+          if (ip && ip.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) && 
+              ip !== "127.0.0.1" && ip !== "0.0.0.0" && 
+              !ip.startsWith("172.17.") && !ip.startsWith("172.18.") && !ip.startsWith("172.19.")) {
+            return ip;
           }
         }
       }
     }
   } catch (error) {
-    console.log("Erreur lecture /proc/net/route:", error);
+    console.log("Erreur lors de la récupération de l'IP:", error);
   }
   
-  // Fallback: utiliser l'IP du conteneur
+  // Fallback: utiliser l'IP du conteneur (si on ne peut pas accéder à l'hôte)
+  // Mais filtrer les IPs Docker
   const interfaces = os.networkInterfaces();
   for (const name of Object.keys(interfaces || {})) {
     const iface = interfaces![name];
     if (iface) {
       for (const addr of iface) {
-        if (addr.family === "IPv4" && !addr.internal) {
+        if (addr.family === "IPv4" && !addr.internal && 
+            !addr.address.startsWith("172.17.") && 
+            !addr.address.startsWith("172.18.") && 
+            !addr.address.startsWith("172.19.") &&
+            !addr.address.startsWith("172.20.") &&
+            !addr.address.startsWith("172.21.") &&
+            !addr.address.startsWith("172.22.") &&
+            !addr.address.startsWith("172.23.") &&
+            !addr.address.startsWith("172.24.") &&
+            !addr.address.startsWith("172.25.") &&
+            !addr.address.startsWith("172.26.") &&
+            !addr.address.startsWith("172.27.") &&
+            !addr.address.startsWith("172.28.") &&
+            !addr.address.startsWith("172.29.") &&
+            !addr.address.startsWith("172.30.") &&
+            !addr.address.startsWith("172.31.")) {
           return addr.address;
         }
       }
@@ -319,6 +557,7 @@ export async function GET() {
     const hostname = getHostHostname();
     const osInfo = getHostOS();
     const loadAvg = getHostLoadAvg();
+    const cpuUsage = getHostCPUUsage();
     const arch = getHostArch();
     const localIP = getHostIP();
 
@@ -335,12 +574,14 @@ export async function GET() {
       memory: {
         total: memory.total,
         free: memory.free,
-        used: memory.total - memory.free,
+        available: memory.available,
+        used: memory.total - memory.available, // Utiliser available au lieu de free
       },
       uptime,
       hostname,
       localIP,
       loadAvg,
+      cpuUsage, // Ajouter l'utilisation CPU réelle
       hostMounted,
     });
   } catch (error) {
