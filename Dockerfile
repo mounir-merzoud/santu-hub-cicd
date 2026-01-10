@@ -1,0 +1,57 @@
+# Stage 1: Build
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+# Installation de pnpm
+RUN npm install -g pnpm@8.6.7
+
+# Copier les fichiers de dépendances
+COPY package.json pnpm-lock.yaml ./
+
+# Installer les dépendances
+RUN pnpm install --frozen-lockfile
+
+# Copier le reste des fichiers de l'application
+COPY . .
+
+# Build de l'application Next.js
+RUN pnpm run build
+
+# Stage 2: Production
+FROM node:22-alpine AS runner
+
+WORKDIR /app
+
+# Créer un utilisateur non-root pour la sécurité
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Installation de pnpm pour le runner
+RUN npm install -g pnpm@8.6.7
+
+# Copier les fichiers nécessaires depuis le builder
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./
+COPY --from=builder --chown=nextjs:nodejs /app/pnpm-lock.yaml ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+
+# Installer uniquement les dépendances de production
+RUN pnpm install --prod --frozen-lockfile
+
+USER nextjs
+
+# Exposer le port 3000
+EXPOSE 3000
+
+# Variables d'environnement
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+ENV NODE_ENV=production
+
+# Commande de démarrage
+CMD ["pnpm", "start"]
+
+# Commandes utiles:
+# docker build -t santu-hub-cicd:latest .
+# docker run -p 3000:3000 santu-hub-cicd:latest

@@ -1,5 +1,6 @@
 import os from "os";
 import React from "react";
+import EnvVarsSection from "./components/EnvVarsSection";
 
 // Fonction pour obtenir l'adresse IP principale
 function getLocalIP(): string {
@@ -78,34 +79,6 @@ export default function Home() {
 
   const localIP = getLocalIP();
   const hostname = os.hostname();
-
-
-  // Récupération uniquement des variables d'environnement du .env
-  const envVars = Object.keys(process.env)
-    .filter((key) => {
-      // Ne garder que les variables qui semblent être des variables d'application
-      // (commencent par des lettres majuscules ou contiennent des underscores)
-      return /^[A-Z][A-Z0-9_]*$/.test(key);
-    })
-    .sort()
-    .reduce((acc, key) => {
-      const value = process.env[key];
-      if (value && value.length > 0) {
-        const lowerKey = key.toLowerCase();
-        // Masquer partiellement les valeurs potentiellement sensibles
-        if (
-          lowerKey.includes("key") ||
-          lowerKey.includes("api") ||
-          lowerKey.includes("auth") ||
-          lowerKey.includes("token")
-        ) {
-          acc[key] = value.length > 8 ? `${value.substring(0, 4)}...${value.substring(value.length - 4)}` : "***";
-        } else {
-          acc[key] = value;
-        }
-      }
-      return acc;
-    }, {} as Record<string, string>);
 
   const systemInfo = [
     {
@@ -249,28 +222,7 @@ export default function Home() {
         </div>
 
         {/* Environment Variables Section */}
-        {Object.keys(envVars).length > 0 && (
-          <div className="mb-6 bg-white dark:bg-gray-900 rounded-xl shadow-lg border-2 border-gray-300 dark:border-gray-700 p-5 animate-slide-up">
-            <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">
-              Variables d'Environnement
-            </h2>
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {Object.entries(envVars).map(([key, value]) => (
-                <div
-                  key={key}
-                  className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
-                >
-                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide min-w-[200px]">
-                    {key}:
-                  </span>
-                  <span className="font-mono text-xs text-gray-900 dark:text-gray-100 break-all">
-                    {value}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <EnvVarsSection />
 
         {/* Footer */}
         <div className="mt-8 text-center text-gray-500 dark:text-gray-400 text-xs">
