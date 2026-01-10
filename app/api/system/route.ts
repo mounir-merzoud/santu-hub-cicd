@@ -409,8 +409,17 @@ function getHostArch(): string {
 function getHostIP(): string {
   try {
     // Méthode 0: Essayer d'utiliser hostname -i (le plus fiable avec --pid host)
+    // Note: Alpine Linux peut ne pas avoir hostname avec l'option -i
     try {
       if (fs.existsSync("/proc/1/root")) {
+        // Vérifier si hostname est disponible
+        try {
+          execSync("which hostname 2>/dev/null", { encoding: "utf-8", timeout: 1000 });
+        } catch {
+          // hostname n'est pas disponible, passer à la méthode suivante
+          throw new Error("hostname command not found");
+        }
+        
         // Avec --pid host, on peut exécuter hostname -i dans l'espace de noms de l'hôte
         const hostnameIP = execSync("hostname -i 2>/dev/null", { encoding: "utf-8", timeout: 2000 }).trim();
         console.log(`hostname -i result: "${hostnameIP}"`);
@@ -424,25 +433,61 @@ function getHostIP(): string {
         }
       }
     } catch (e: any) {
-      console.log(`hostname -i failed: ${e.message}`);
+      console.log(`hostname -i failed or not available: ${e.message}`);
       // hostname -i n'est pas disponible ou a échoué, continuer avec les autres méthodes
     }
     
-    // Méthode 0.5: Essayer de lire depuis /sys/class/net pour trouver les interfaces et leurs IPs
+    // Méthode 0.1: Essayer ip addr show (plus universel que hostname -i)
     try {
-      const netDir = "/proc/1/root/sys/class/net";
+      if (fs.existsSync("/proc/1/root")) {
+        // Vérifier si ip est disponible
+        try {
+          execSync("which ip 2>/dev/null", { encoding: "utf-8", timeout: 1000 });
+        } catch {
+          throw new Error("ip command not found");
+        }
+        
+        // Utiliser ip addr show pour lister les IPs
+        const ipOutput = execSync("ip -4 addr show 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | head -1", { 
+          encoding: "utf-8", 
+          timeout: 2000 
+        }).trim();
+        
+        if (ipOutput) {
+          // Format: inet 192.168.0.19/24 brd 192.168.0.255 scope global eth0
+          const ipMatch = ipOutput.match(/inet\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+          if (ipMatch && ipMatch[1]) {
+            const ip = ipMatch[1];
+            if (ip !== "127.0.0.1" && !ip.startsWith("172.17.") && !ip.startsWith("172.18.") && !ip.startsWith("172.19.")) {
+              console.log(`✓ IP depuis ip addr show: ${ip}`);
+              return ip;
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.log(`ip addr show failed or not available: ${e.message}`);
+    }
+    
+    // Méthode 0.5: Lire depuis /sys/class/net pour trouver les interfaces et leurs IPs
+    // Cette méthode fonctionne sur tous les systèmes Linux
+    try {
+      // Essayer d'abord avec /proc/1/root (si --pid host)
+      let netDir = "/proc/1/root/sys/class/net";
+      if (!fs.existsSync(netDir)) {
+        // Fallback vers /sys/class/net du conteneur
+        netDir = "/sys/class/net";
+      }
+      
       if (fs.existsSync(netDir)) {
         const interfaces = fs.readdirSync(netDir);
+        console.log(`Found network interfaces: ${interfaces.join(", ")}`);
+        
         for (const iface of interfaces) {
           if (iface === "lo") continue; // Ignorer loopback
           
-          // Chercher l'adresse IP dans /sys/class/net/iface/address (MAC) puis chercher l'IP
-          // Ou mieux: chercher dans /proc/net/route ou /proc/net/fib_trie pour cette interface
-          const addrFile = `${netDir}/${iface}/address`;
-          if (fs.existsSync(addrFile)) {
-            // Cette interface existe, chercher son IP
-            // On va utiliser une autre méthode pour trouver l'IP de cette interface
-          }
+          // Chercher l'IP de cette interface dans /proc/net/fib_trie ou /proc/net/route
+          // On va utiliser les méthodes suivantes pour trouver l'IP
         }
       }
     } catch (e: any) {
@@ -553,20 +598,41 @@ function getHostIP(): string {
     }
     
     // Méthode 3: Lire depuis /proc/net/arp (contient les IPs des interfaces)
+    // Note: ARP peut ne pas contenir toutes les IPs, mais c'est une bonne source de fallback
     const arp = readHostFile("/proc/net/arp", () => "");
     if (arp && arp.length > 0) {
       const lines = arp.split("\n");
+      const arpIPs: string[] = [];
+      
       for (let i = 1; i < lines.length; i++) {
         const parts = lines[i].trim().split(/\s+/);
         if (parts.length >= 1) {
           const ip = parts[0];
           // Vérifier que c'est une IP valide et non loopback/Docker
           if (ip && ip.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) && 
-              ip !== "127.0.0.1" && ip !== "0.0.0.0" && 
-              !ip.startsWith("172.17.") && !ip.startsWith("172.18.") && !ip.startsWith("172.19.")) {
-            return ip;
+              ip !== "127.0.0.1" && ip !== "0.0.0.0") {
+            // Filtrer les IPs Docker (172.16.0.0/12)
+            const ipParts = ip.split(".");
+            const firstOctet = parseInt(ipParts[0]);
+            const secondOctet = parseInt(ipParts[1]);
+            const isDockerIP = firstOctet === 172 && secondOctet >= 16 && secondOctet <= 31;
+            
+            if (!isDockerIP) {
+              arpIPs.push(ip);
+            }
           }
         }
+      }
+      
+      if (arpIPs.length > 0) {
+        // Préférer les IPs privées
+        const privateIP = arpIPs.find(ip => ip.startsWith("192.168.") || ip.startsWith("10."));
+        if (privateIP) {
+          console.log(`✓ IP depuis ARP: ${privateIP}`);
+          return privateIP;
+        }
+        console.log(`✓ IP depuis ARP: ${arpIPs[0]}`);
+        return arpIPs[0];
       }
     }
   } catch (error) {
