@@ -87,41 +87,38 @@ fi
 echo "Image Docker santu-hub-cicd construite avec succès: ${IMAGE_NAME}:${TAG}"
 
 # *************************** PUBLICATION ****************************
-# Demander à l'utilisateur s'il souhaite publier l'image sur GitHub Container Registry
-read -p "Voulez-vous publier l'image sur GitHub Container Registry? (y/n): " PUSH_IMAGE
-if [[ $PUSH_IMAGE == "y" || $PUSH_IMAGE == "Y" ]]; then
-  # Vérification GitHub Actions vs exécution locale
-  if [ -n "$GITHUB_ACTIONS" ]; then
-    echo "Exécution dans GitHub Actions, l'authentification sera faite avec GITHUB_TOKEN..."
-  else
-    # En environnement local, vérifier si le PAT_GITHUB_TOKEN est disponible dans les variables d'environnement
-    if [ -z "$PAT_GITHUB_TOKEN" ]; then
-      echo "PAT_GITHUB_TOKEN non trouvé dans le fichier .env. Publication impossible."
-      exit 1
-    fi
-
-    # Connexion à GitHub Container Registry localement
-    echo "Connexion à GitHub Container Registry avec le token PAT depuis .env..."
-    echo $PAT_GITHUB_TOKEN | docker login ${REGISTRY} -u aboubacar3012 --password-stdin
+# Publication automatique de l'image sur GitHub Container Registry
+# Vérification GitHub Actions vs exécution locale
+if [ -n "$GITHUB_ACTIONS" ]; then
+  echo "Exécution dans GitHub Actions, l'authentification sera faite avec GITHUB_TOKEN..."
+else
+  # En environnement local, vérifier si le PAT_GITHUB_TOKEN est disponible dans les variables d'environnement
+  if [ -z "$PAT_GITHUB_TOKEN" ]; then
+    echo "PAT_GITHUB_TOKEN non trouvé dans le fichier .env. Publication impossible."
+    exit 1
   fi
 
-  # Tag de l'image avec la date
-  echo "Tag de l'image pour GitHub Container Registry..."
-  docker tag ${IMAGE_NAME}:${TAG} ${REGISTRY}/${REPO}:${TAG}
-  
-  # Tag de l'image comme "latest"
-  echo "Tag de l'image comme 'latest'..."
-  docker tag ${IMAGE_NAME}:${TAG} ${REGISTRY}/${REPO}:latest
-
-  # Publication de l'image avec la date
-  echo "Publication de l'image sur GitHub Container Registry..."
-  docker push ${REGISTRY}/${REPO}:${TAG}
-  
-  # Publication de l'image avec le tag "latest"
-  echo "Publication de l'image avec le tag 'latest'..."
-  docker push ${REGISTRY}/${REPO}:latest
-
-  echo "Images publiées avec succès: ${REGISTRY}/${REPO}:${TAG} et ${REGISTRY}/${REPO}:latest"
+  # Connexion à GitHub Container Registry localement
+  echo "Connexion à GitHub Container Registry avec le token PAT depuis .env..."
+  echo $PAT_GITHUB_TOKEN | docker login ${REGISTRY} -u aboubacar3012 --password-stdin
 fi
+
+# Tag de l'image avec la date
+echo "Tag de l'image pour GitHub Container Registry..."
+docker tag ${IMAGE_NAME}:${TAG} ${REGISTRY}/${REPO}:${TAG}
+
+# Tag de l'image comme "latest"
+echo "Tag de l'image comme 'latest'..."
+docker tag ${IMAGE_NAME}:${TAG} ${REGISTRY}/${REPO}:latest
+
+# Publication de l'image avec la date
+echo "Publication de l'image sur GitHub Container Registry..."
+docker push ${REGISTRY}/${REPO}:${TAG}
+
+# Publication de l'image avec le tag "latest"
+echo "Publication de l'image avec le tag 'latest'..."
+docker push ${REGISTRY}/${REPO}:latest
+
+echo "Images publiées avec succès: ${REGISTRY}/${REPO}:${TAG} et ${REGISTRY}/${REPO}:latest"
 
 echo "Script terminé avec succès."

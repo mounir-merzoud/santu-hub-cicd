@@ -1,0 +1,97 @@
+name: Production
+
+# Ce workflow se déclenche automatiquement lors d'un push sur la branche main
+on:
+  push:
+    branches:
+      - main
+
+# Variables d'environnement utilisées dans le workflow
+# Ces variables sont partagées par tous les jobs du workflow
+env:
+  REGISTRY: ghcr.io # GitHub Container Registry - où sont stockées nos images Docker
+  IMAGE_NAME: ${{ github.repository }} # Nom du repository GitHub (ex: aboubacar3012/santu-hub-cicd-example)
+
+# ================================================================================================
+# JOBS DE CONSTRUCTION (BUILD) - Ces jobs créent les images Docker
+# ================================================================================================
+
+jobs:
+  # Job 1: Construction et publication de l'image
+  # Ce job construit une image Docker contenant notre application Next.js
+  # et la publie automatiquement sur GitHub Container Registry
+  build-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: read
+
+    steps:
+      # Étape 1: Télécharger le code source du commit qui a déclenché le workflow
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Étape 2: Supprimer l'ancien fichier .env s'il existe
+      # Le fichier .env contient les variables d'environnement de l'application
+      # - name: Clean old .env file
+      #   run: rm -f .env
+
+      # Étape 3: Créer le fichier .env avec toutes les variables d'environnement
+      # Ces variables configurent l'application (base de données, services externes, etc.)
+      # - name: Create .env file
+      #   run: |
+      #     set -euo pipefail
+
+      #      RESPONSE_FILE=$(mktemp)
+      #      HTTP_STATUS=$(curl --silent --show-error --fail \
+      #        --get \
+      #        --data-urlencode "site_url=${{ vars.SITE_URL }}" \
+      #        --data-urlencode "client_id=${{ vars.CLIENT_ID }}" \
+      #        --data-urlencode "client_secret=${{ vars.CLIENT_SECRET }}" \
+      #        --data-urlencode "project_id=${{ vars.PROJECT_ID }}" \
+      #        --data-urlencode "env=dev" \
+      #        --write-out "%{http_code}" \
+      #        --output "$RESPONSE_FILE" \
+      #        https://env-5.elyamaje.com/getEnvVariables || true)
+
+      #      HTTP_STATUS=${HTTP_STATUS:-0}
+
+      #      if [[ "$HTTP_STATUS" -ne 200 || ! -s "$RESPONSE_FILE" ]]; then
+      #        echo "::error::Échec de la récupération des variables (HTTP ${HTTP_STATUS:-unknown})"
+      #        echo "Réponse brute :"
+      #        cat "$RESPONSE_FILE" 2>/dev/null || echo "<aucune réponse>"
+      #        exit 1
+      #      fi
+
+      #      jq -e '.secrets and (.secrets | type == "array")' "$RESPONSE_FILE" > /dev/null
+      #      jq -r '.secrets[] | "\(.key)=\(.value)"' "$RESPONSE_FILE" > .env
+
+      # Étape 4: Afficher le contenu du fichier .env pour débugger
+      # Cela nous permet de vérifier que toutes les variables sont bien définies
+      - name: Debug .env
+        run: |
+          echo "------ Contenu de .env ------"
+          cat .env
+          echo "----------------------------------------"
+
+      # Étape 5: Se connecter au registre Docker GitHub Container Registry
+      # Cette authentification est nécessaire pour publier l'image Docker
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.PAT_GITHUB_TOKEN }}
+
+      # Étape 6: Rendre le script exécutable
+      - name: Make script executable
+        run: chmod +x build-image.sh
+
+      # Étape 7: Construire et publier l'image
+      # Le script build-image.sh construit l'image Docker et la publie automatiquement
+      # sur GitHub Container Registry avec un tag basé sur l'auteur et la date
+      - name: Build and push image
+        run: ./build-image.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
