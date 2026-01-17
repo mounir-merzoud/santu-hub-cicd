@@ -52,9 +52,10 @@ jobs:
 
             docker run -d --name $CONTAINER_NAME \
               -p ${{ vars.CONTAINER_PORT }}:${{ vars.CONTAINER_PORT }} \
-              -e VARIABLE1="${{ vars.VARIABLE1 }}" \
-              -e VARIABLE2="${{ vars.VARIABLE2 }}" \
-              -e VARIABLE3="${{ vars.VARIABLE3 }}" \
+              -e CONTAINER_PORT="${{ vars.CONTAINER_PORT }}" \
+              -e SSH_HOST="${{ vars.SSH_HOST }}" \
+              -e SSH_PORT="${{ vars.SSH_PORT }}" \
+              -e SSH_USER="${{ vars.SSH_USER }}" \
               --restart unless-stopped \
               $IMAGE_TAG
 
