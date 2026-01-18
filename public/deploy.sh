@@ -31,10 +31,7 @@
 # • CONTENEUR APPLICATION:
 #   - Port exposé : 3000 (configurable via APP_PORT)
 #   - Restart policy : unless-stopped
-#   - Volumes montés (lecture seule) :
-#     * /proc:/host/proc:ro - Informations système et processus
-#     * /sys:/host/sys:ro - Informations système
-#     * /etc:/host/etc:ro - Configuration système
+#   - Variables d'environnement injectées au démarrage
 #
 # • VÉRIFICATIONS POST-DÉPLOIEMENT:
 #   - Vérifie que le conteneur est en cours d'exécution
@@ -341,17 +338,12 @@ fi
 log_section "Étape 5/5: Déploiement du conteneur"
 info "Déploiement du conteneur..."
 
-# Lancer le conteneur avec les volumes montés pour accéder aux infos système de l'hôte
+# Lancer le conteneur
 docker run -d \
     --name "$APP_CONTAINER_NAME" \
-    --hostname "$(hostname)" \
+    -p "${APP_PORT}:${APP_PORT}" \
+    -e CONTAINER_PORT="${APP_PORT}" \
     --restart unless-stopped \
-    --privileged \
-    --pid host \
-    -p "${APP_PORT}:3000" \
-    -v /proc:/host/proc:ro \
-    -v /sys:/host/sys:ro \
-    -v /etc:/host/etc:ro \
     "$APP_IMAGE_NAME"
 
 if [ $? -eq 0 ]; then
@@ -455,7 +447,6 @@ info "Résumé du déploiement:"
 echo "  • Conteneur:           $APP_CONTAINER_NAME"
 echo "  • Port:               $APP_PORT"
 echo "  • Système:            $OS_TYPE $OS_VERSION"
-echo "  • Volumes montés:     /proc, /sys, /etc (lecture seule)"
 echo ""
 
 if [ -n "$IPV4_PUBLIC_IP" ]; then
