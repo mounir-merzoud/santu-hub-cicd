@@ -1,13 +1,11 @@
 name: Build Santu Hub CICD
 
-# Ce workflow se déclenche manuellement
+# Ce workflow se déclenche automatiquement lors d'un push sur la branche main
 on:
-  workflow_dispatch:
-  # Déclenchement automatique (commenté)
-  # push:
-  #   branches:
-  #     - main
-  #     - develop
+  push:
+    branches:
+      - main
+      - develop
 
 # Variables d'environnement partagées par tous les jobs
 env:

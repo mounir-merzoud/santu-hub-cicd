@@ -3,11 +3,6 @@ name: Deploy Santu Hub CICD
 # Ce workflow se déclenche manuellement
 on:
   workflow_dispatch:
-  # Déclenchement automatique (commenté)
-  # push:
-  #   branches:
-  #     - main
-  #     - develop
 
 env:
   REGISTRY: ghcr.io

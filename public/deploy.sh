@@ -7,11 +7,11 @@
 #
 # FONCTIONNALITÉS PRINCIPALES:
 # ============================
-# 1. Clonage automatique du repository Git
-# 2. Construction de l'image Docker
+# 1. Vérification de l'espace disque disponible
+# 2. Clonage automatique du repository Git
 # 3. Gestion intelligente des conteneurs existants (arrêt/suppression)
-# 4. Déploiement du conteneur avec volumes montés pour accès aux infos système de l'hôte
-# 5. Vérification de l'espace disque disponible
+# 4. Construction de l'image Docker
+# 5. Déploiement du conteneur avec volumes montés pour accès aux infos système de l'hôte
 # 6. Vérification de la santé du conteneur après déploiement
 # 7. Nettoyage automatique des fichiers temporaires
 # 8. Affichage des informations de connexion (IPs publiques/privées)
