@@ -53,7 +53,7 @@ CMD ["node", "server.js"]
 # docker build -t santu-hub-cicd:latest .
 # Construction multi-plateforme :
 # docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 -t santu-hub-cicd:latest .
-# docker run -d --name santu-hub-cicd --hostname $(hostname) --restart unless-stopped --privileged --pid host -p 3000:3000 -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /etc:/host/etc:ro santu-hub-cicd:latest
+# docker run -d --name santu-hub-cicd --restart unless-stopped -p 3000:3000 santu-hub-cicd:latest
 # docker login
 # docker tag santu-hub-cicd:latest aboubacar99/santu-hub-cicd:latest
 # docker push aboubacar99/santu-hub-cicd:latest
@@ -62,4 +62,4 @@ CMD ["node", "server.js"]
 
 # Sur ton VPS OVH :
 # docker pull aboubacar99/santu-hub-cicd:latest
-# docker run -d --name santu-hub-cicd --hostname $(hostname) --restart unless-stopped --privileged --pid host -p 3000:3000 -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /etc:/host/etc:ro aboubacar99/santu-hub-cicd:latest
+# docker run -d --name santu-hub-cicd  --restart unless-stopped -p 3000:3000 aboubacar99/santu-hub-cicd:latest

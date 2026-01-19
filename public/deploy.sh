@@ -11,7 +11,7 @@
 # 2. Clonage automatique du repository Git
 # 3. Gestion intelligente des conteneurs existants (arrêt/suppression)
 # 4. Construction de l'image Docker
-# 5. Déploiement du conteneur avec volumes montés pour accès aux infos système de l'hôte
+# 5. Déploiement du conteneur
 # 6. Vérification de la santé du conteneur après déploiement
 # 7. Nettoyage automatique des fichiers temporaires
 # 8. Affichage des informations de connexion (IPs publiques/privées)
@@ -22,7 +22,7 @@
 #   - Docker doit être installé et en cours d'exécution
 #   - Script exécuté en root (sudo ou root)
 #   - Accès Internet pour cloner le repository
-#   - Espace disque : 5GB total, 2GB disponible (avertissement si insuffisant)
+#   - Espace disque : 2GB total, 1GB disponible (avertissement si insuffisant)
 #
 # • GESTION DES CONTENEURS EXISTANTS:
 #   - Arrête et supprime le conteneur existant avant déploiement
@@ -58,7 +58,7 @@
 #   (Exécuter d'abord: curl -fsSL https://devoups.elyamaje.com/install-tools.sh | sudo bash)
 # • Script exécuté en root (sudo ou root)
 # • Accès Internet pour cloner le repository Git
-# • Espace disque suffisant (5GB recommandé)
+# • Espace disque suffisant (2GB recommandé)
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/aboubacar3012/santu-hub-cicd/main/public/deploy.sh | sudo bash
@@ -195,8 +195,8 @@ fi
 if ! [[ "$AVAILABLE_SPACE" =~ ^[0-9]+$ ]]; then
     AVAILABLE_SPACE="0"
 fi
-REQUIRED_TOTAL_SPACE=5
-REQUIRED_AVAILABLE_SPACE=2
+REQUIRED_TOTAL_SPACE=2
+REQUIRED_AVAILABLE_SPACE=1
 WARNING_SPACE=false
 
 # Récupération de la version Docker installée (si disponible)
