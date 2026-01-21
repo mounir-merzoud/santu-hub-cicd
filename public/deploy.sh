@@ -55,16 +55,15 @@
 # PRÉREQUIS:
 # ==========
 # • Docker installé et en cours d'exécution
-#   (Exécuter d'abord: curl -fsSL https://devoups.elyamaje.com/install-tools.sh | sudo bash)
 # • Script exécuté en root (sudo ou root)
 # • Accès Internet pour cloner le repository Git
 # • Espace disque suffisant (2GB recommandé)
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/aboubacar3012/santu-hub-cicd/main/public/deploy.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/${votre-github}/santu-hub-cicd/main/public/deploy.sh | sudo bash
 #
 # Variables d'environnement (optionnelles):
-#   APP_REPO_URL         - URL du repository Git (défaut: https://github.com/aboubacar3012/santu-hub-cicd.git)
+#   APP_REPO_URL         - URL du repository Git (défaut: https://github.com/${votre-github}/santu-hub-cicd.git)
 #   APP_REPO_DIR         - Nom du dossier de clonage (défaut: santu-hub-cicd)
 #   APP_IMAGE_NAME       - Nom de l'image Docker (défaut: santu-hub-cicd:latest)
 #   APP_CONTAINER_NAME   - Nom du conteneur (défaut: santu-hub-cicd)
@@ -72,16 +71,8 @@
 #
 # Exemples:
 #   # Déploiement standard
-#   curl -fsSL https://raw.githubusercontent.com/aboubacar3012/santu-hub-cicd/main/public/deploy.sh | sudo bash
-#
-#   # Déploiement avec port personnalisé
-#   APP_PORT=8080 \
-#     curl -fsSL https://raw.githubusercontent.com/aboubacar3012/santu-hub-cicd/main/public/deploy.sh | sudo bash
-#
-#   # Déploiement depuis un repository personnalisé
-#   APP_REPO_URL=https://github.com/user/custom-repo.git \
-#     curl -fsSL https://raw.githubusercontent.com/aboubacar3012/santu-hub-cicd/main/public/deploy.sh | sudo bash
-#
+#   curl -fsSL https://raw.githubusercontent.com/${votre-github}/santu-hub-cicd/main/public/deploy.sh | sudo bash
+
 # Auteur : Aboubacar DIALLO
 # ==============================================================================
 
@@ -177,7 +168,7 @@ fi
 # SECTION 3: CONFIGURATION PAR DÉFAUT
 # ==============================================================================
 
-APP_REPO_URL="${APP_REPO_URL:-https://github.com/aboubacar3012/santu-hub-cicd.git}"
+APP_REPO_URL="${APP_REPO_URL:-https://github.com/${votre-github}/santu-hub-cicd.git}"
 APP_REPO_DIR="${APP_REPO_DIR:-santu-hub-cicd}"
 APP_REPO_PATH="/tmp/${APP_REPO_DIR}"
 
