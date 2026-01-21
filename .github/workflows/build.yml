@@ -54,8 +54,6 @@ on:
     branches:
       # - main
       # - develop
-  # Déclenchement manuel (commenté)
-  # workflow_dispatch:
 
 # Variables d'environnement partagées par tous les jobs
 env:
