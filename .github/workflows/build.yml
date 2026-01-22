@@ -55,7 +55,8 @@ on:
       - main
       - develop
 
-# Variables d'environnement partagées par tous les jobs
+# Variables d'environnement partagées par tous les jobs e
+
 env:
   REGISTRY: ghcr.io # GitHub Container Registry - où sont stockées les images Docker
   IMAGE_NAME: ${{ github.repository }} # Nom du repository GitHub (ex: aboubacar3012/santu-hub-cicd)
